@@ -1,0 +1,92 @@
+#!/sbin/openrc-run
+
+# backward compatibility for existing gentoo layout 
+#
+if [ -d "/var/lib/connex/.connex" ]; then
+	CONNEXD_DEFAULT_DATADIR="/var/lib/connex/.connex"
+else
+	CONNEXD_DEFAULT_DATADIR="/var/lib/connexd"
+fi
+
+CONNEXD_CONFIGFILE=${CONNEXD_CONFIGFILE:-/etc/connex/connex.conf}
+CONNEXD_PIDDIR=${CONNEXD_PIDDIR:-/var/run/connexd}
+CONNEXD_PIDFILE=${CONNEXD_PIDFILE:-${CONNEXD_PIDDIR}/connexd.pid}
+CONNEXD_DATADIR=${CONNEXD_DATADIR:-${CONNEXD_DEFAULT_DATADIR}}
+CONNEXD_USER=${CONNEXD_USER:-${CONNEX_USER:-connex}}
+CONNEXD_GROUP=${CONNEXD_GROUP:-connex}
+CONNEXD_BIN=${CONNEXD_BIN:-/usr/bin/connexd}
+CONNEXD_NICE=${CONNEXD_NICE:-${NICELEVEL:-0}}
+CONNEXD_OPTS="${CONNEXD_OPTS:-${CONNEX_OPTS}}"
+
+name="CONNEX Core Daemon"
+description="CONNEX cryptocurrency P2P network daemon"
+
+command="/usr/bin/connexd"
+command_args="-pid=\"${CONNEXD_PIDFILE}\" \
+		-conf=\"${CONNEXD_CONFIGFILE}\" \
+		-datadir=\"${CONNEXD_DATADIR}\" \
+		-daemon \
+		${CONNEXD_OPTS}"
+
+required_files="${CONNEXD_CONFIGFILE}"
+start_stop_daemon_args="-u ${CONNEXD_USER} \
+			-N ${CONNEXD_NICE} -w 2000"
+pidfile="${CONNEXD_PIDFILE}"
+
+# The retry schedule to use when stopping the daemon. Could be either
+# a timeout in seconds or multiple signal/timeout pairs (like
+# "SIGKILL/180 SIGTERM/300")
+retry="${CONNEXD_SIGTERM_TIMEOUT}"
+
+depend() {
+	need localmount net
+}
+
+# verify
+# 1) that the datadir exists and is writable (or create it)
+# 2) that a directory for the pid exists and is writable
+# 3) ownership and permissions on the config file
+start_pre() {
+	checkpath \
+	-d \
+	--mode 0750 \
+	--owner "${CONNEXD_USER}:${CONNEXD_GROUP}" \
+	"${CONNEXD_DATADIR}"
+
+	checkpath \
+	-d \
+	--mode 0755 \
+	--owner "${CONNEXD_USER}:${CONNEXD_GROUP}" \
+	"${CONNEXD_PIDDIR}"
+
+	checkpath -f \
+	-o ${CONNEXD_USER}:${CONNEXD_GROUP} \
+	-m 0660 \
+	${CONNEXD_CONFIGFILE}
+
+	checkconfig || return 1
+}
+
+checkconfig()
+{
+	if ! grep -qs '^rpcpassword=' "${CONNEXD_CONFIGFILE}" ; then
+		eerror ""
+		eerror "ERROR: You must set a secure rpcpassword to run connexd."
+		eerror "The setting must appear in ${CONNEXD_CONFIGFILE}"
+		eerror ""
+		eerror "This password is security critical to securing wallets "
+		eerror "and must not be the same as the rpcuser setting."
+		eerror "You can generate a suitable random password using the following "
+		eerror "command from the shell:"
+		eerror ""
+		eerror "bash -c 'tr -dc a-zA-Z0-9 < /dev/urandom | head -c32 && echo'"
+		eerror ""
+		eerror "It is recommended that you also set alertnotify so you are "
+		eerror "notified of problems:"
+		eerror ""
+		eerror "ie: alertnotify=echo %%s | mail -s \"CONNEX Alert\"" \
+			"admin@foo.com"
+		eerror ""
+		return 1
+	fi
+}
